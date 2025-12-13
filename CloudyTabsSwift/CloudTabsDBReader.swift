@@ -94,6 +94,7 @@ class CloudTabsDBReader {
                 
                 var dictionary: [String: Any] = [:]
                 dictionary["DeviceName"] = name
+                dictionary["DeviceID"] = deviceID
                 dictionary["Tabs"] = self.tabs(forDeviceID: deviceID) ?? []
                 
                 items.append(dictionary)
@@ -103,6 +104,72 @@ class CloudTabsDBReader {
                 completionHandler(items)
             } else {
                 completionHandler(nil)
+            }
+        }
+    }
+    
+    func fetchTabItems(completionHandler: @escaping ([TabItem]?) -> Void) {
+        DispatchQueue.global(qos: .default).async {
+            var allTabs: [TabItem] = []
+            
+            // Force database to be opened by accessing it
+            // This will trigger the database property getter which opens the DB
+            _ = self.database
+            
+            // Check if we can access the database
+            guard let db = self.database else {
+                print("DEBUG: fetchTabItems - database is nil after access attempt, cannot fetch tabs")
+                DispatchQueue.main.async {
+                    completionHandler(nil)
+                }
+                return
+            }
+            
+            print("DEBUG: fetchTabItems - database is available")
+            
+            guard let deviceIDs = self.deviceIDs else {
+                print("DEBUG: fetchTabItems - deviceIDs is nil, cannot fetch tabs")
+                DispatchQueue.main.async {
+                    completionHandler(nil)
+                }
+                return
+            }
+            
+            print("DEBUG: fetchTabItems - found \(deviceIDs.count) devices")
+            
+            for deviceID in deviceIDs {
+                print("DEBUG: fetchTabItems - processing deviceID: \(deviceID)")
+                
+                guard let deviceName = self.deviceName(forID: deviceID) else {
+                    print("DEBUG: fetchTabItems - could not get device name for ID: \(deviceID)")
+                    continue
+                }
+                
+                print("DEBUG: fetchTabItems - device name: \(deviceName)")
+                
+                guard let tabDictionaries = self.tabs(forDeviceID: deviceID) else {
+                    print("DEBUG: fetchTabItems - could not get tabs for device: \(deviceName)")
+                    continue
+                }
+                
+                print("DEBUG: fetchTabItems - device \(deviceName) has \(tabDictionaries.count) tabs")
+                
+                for tabDict in tabDictionaries {
+                    let tabItem = TabItem(from: tabDict, deviceName: deviceName, deviceID: deviceID)
+                    allTabs.append(tabItem)
+                }
+            }
+            
+            print("DEBUG: fetchTabItems - total tabs collected: \(allTabs.count)")
+            
+            DispatchQueue.main.async {
+                print("DEBUG: fetchTabItems - calling completion handler with \(allTabs.count) tabs")
+                if allTabs.count > 0 {
+                    completionHandler(allTabs)
+                } else {
+                    print("DEBUG: fetchTabItems - no tabs, calling completion with nil")
+                    completionHandler(nil)
+                }
             }
         }
     }
@@ -265,7 +332,7 @@ class CloudTabsDBReader {
         return cloudTabsDatabase
     }
     
-    private var deviceIDs: [String]? {
+    var deviceIDs: [String]? {
         guard let db = database else { return nil }
         
         var deviceIDs: [String] = []
@@ -281,7 +348,7 @@ class CloudTabsDBReader {
         return deviceIDs.isEmpty ? nil : deviceIDs
     }
     
-    private func deviceName(forID deviceID: String) -> String? {
+    func deviceName(forID deviceID: String) -> String? {
         guard let db = database else { return nil }
         
         if let resultSet = db.executeQuery("SELECT device_name from cloud_tab_devices WHERE device_uuid = ?", withArgumentsIn: [deviceID]) {
@@ -300,7 +367,8 @@ class CloudTabsDBReader {
         guard let db = database else { return nil }
         
         var tabs: [[String: Any]] = []
-        let query = "SELECT url, title, position from cloud_tabs WHERE device_uuid = ?"
+        // Include last_viewed_time for sorting by most recent
+        let query = "SELECT url, title, position, last_viewed_time from cloud_tabs WHERE device_uuid = ?"
         
         if let resultSet = db.executeQuery(query, withArgumentsIn: [deviceID]) {
             while resultSet.next() {
@@ -312,16 +380,47 @@ class CloudTabsDBReader {
                 let position = resultSet.data(forColumn: "position")
                 let sortValue = sortValue(forData: position) ?? 0
                 
+                // Get last_viewed_time (REAL type = timestamp)
+                let lastViewedTime = resultSet.double(forColumn: "last_viewed_time")
+                
                 tabs.append([
                     "URL": url,
                     "Title": title.isEmpty ? url : title,
-                    "SortValue": sortValue
+                    "SortValue": sortValue,
+                    "LastViewedTime": lastViewedTime
                 ])
             }
             resultSet.close()
         }
         
-        tabs.sort { ($0["SortValue"] as? Int ?? 0) < ($1["SortValue"] as? Int ?? 0) }
+        // Sort by most recent first (highest last_viewed_time first)
+        // If last_viewed_time is 0 or missing, fall back to SortValue
+        // Check user preference for sorting
+        if UserDefaultsController.shouldSortByMostRecent() {
+            tabs.sort { tab1, tab2 in
+                let time1 = tab1["LastViewedTime"] as? Double ?? 0
+                let time2 = tab2["LastViewedTime"] as? Double ?? 0
+                
+                // If both have valid timestamps, sort by time (most recent first)
+                if time1 > 0 && time2 > 0 {
+                    return time1 > time2
+                }
+                // If only one has a timestamp, prioritize it
+                if time1 > 0 && time2 == 0 {
+                    return true
+                }
+                if time1 == 0 && time2 > 0 {
+                    return false
+                }
+                // If neither has a timestamp, fall back to SortValue
+                let sortValue1 = tab1["SortValue"] as? Int ?? 0
+                let sortValue2 = tab2["SortValue"] as? Int ?? 0
+                return sortValue1 < sortValue2
+            }
+        } else {
+            // Original sorting by SortValue
+            tabs.sort { ($0["SortValue"] as? Int ?? 0) < ($1["SortValue"] as? Int ?? 0) }
+        }
         
         return tabs.isEmpty ? nil : tabs
     }
