@@ -546,6 +546,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             openAtLoginItem.state = startAtLogin ? .on : .off
             menu.addItem(openAtLoginItem)
             
+            // ===== QUIT =====
+            menu.addItem(NSMenuItem.separator())
+            let quitMenuItem = NSMenuItem(title: String(format: NSLocalizedString("Quit %@", comment: ""), appBundleName()), action: #selector(quit(_:)), keyEquivalent: "q")
+            menu.addItem(quitMenuItem)
+
             menu.addItem(NSMenuItem.separator())
             
             if requiresFullDiskAccess() {
@@ -558,11 +563,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 menu.addItem(NSMenuItem.separator())
             }
         }
-        
-        // ===== QUIT (AT BOTTOM) =====
-        menu.addItem(NSMenuItem.separator())
-        let quitMenuItem = NSMenuItem(title: String(format: NSLocalizedString("Quit %@", comment: ""), appBundleName()), action: #selector(quit(_:)), keyEquivalent: "q")
-        menu.addItem(quitMenuItem)
         
         lastUpdateDate = Date()
     }
