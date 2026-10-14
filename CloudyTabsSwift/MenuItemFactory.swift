@@ -10,9 +10,14 @@ import AppKit
 class MenuItemFactory {
     
     private static let iconSize = NSSize(width: 19, height: 19)
+    private static let maxTitleLength = 60
     
     static func menuItem(withTitle tabTitle: String, urlPath: String, action: Selector) -> NSMenuItem {
-        let tabMenuItem = NSMenuItem(title: tabTitle, action: action, keyEquivalent: "")
+        let displayTitle = tabTitle.count > maxTitleLength
+            ? String(tabTitle.prefix(maxTitleLength - 1)) + "…"
+            : tabTitle
+        
+        let tabMenuItem = NSMenuItem(title: displayTitle, action: action, keyEquivalent: "")
         
         guard let url = URL.decodeURL(urlPath) else {
             return tabMenuItem
