@@ -24,7 +24,7 @@ class MenuItemFactory {
         }
         
         tabMenuItem.representedObject = url
-        tabMenuItem.toolTip = url.relativeString
+        tabMenuItem.toolTip = tabTitle + "\n\n" + url.relativeString
         
         // For now, use a placeholder image. In the original, DSFavIconManager was used
         // to fetch favicons. You would need to integrate a similar library or implement
